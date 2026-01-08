@@ -86,7 +86,7 @@ export function SegmentCard({ segment, onAccept, onComplete, showActions = true,
               </Button>
             )}
             {segment.status === "assigned" && (
-              <Button className="w-full bg-transparent" variant="outline" disabled className="bg-transparent">
+              <Button className="w-full bg-transparent" variant="outline" disabled>
                 Starting Soon
               </Button>
             )}

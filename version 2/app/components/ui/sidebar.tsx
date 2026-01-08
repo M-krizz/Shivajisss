@@ -599,6 +599,8 @@ function SidebarMenuBadge({
   )
 }
 
+const randomWidth = `${Math.floor(Math.random() * 40) + 50}%`
+
 function SidebarMenuSkeleton({
   className,
   showIcon = false,
@@ -606,9 +608,6 @@ function SidebarMenuSkeleton({
 }: React.ComponentProps<'div'> & {
   showIcon?: boolean
 }) {
-  // Random width between 50 to 90%.
-  const width = `${Math.floor(Math.random() * 40) + 50}%`
-
   return (
     <div
       data-slot="sidebar-menu-skeleton"
@@ -627,7 +626,7 @@ function SidebarMenuSkeleton({
         data-sidebar="menu-skeleton-text"
         style={
           {
-            '--skeleton-width': width,
+            '--skeleton-width': randomWidth,
           } as React.CSSProperties
         }
       />
