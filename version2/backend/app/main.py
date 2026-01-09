@@ -1,41 +1,84 @@
-from fastapi import FastAPI, WebSocket, Depends, HTTPException, status
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import uuid
+from datetime import datetime, timedelta
+from typing import Dict, List, Set
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
-from . import schemas
 
-app = FastAPI()
+from . import schemas, synth
+from .data import (
+    DEFAULT_DRIVERS_PER_DISTRICT,
+    DEFAULT_WAREHOUSES_PER_DISTRICT,
+    DISTRICTS,
+    OSM_ATTRIBUTION,
+    OSM_TILE_URL,
+    TAMIL_NADU_BOUNDS,
+)
+from .routing import RouteNotFound, build_graph, plan_route
+from .schemas import OrderOut, OrderRequest, QuoteRequest, RoutePlanOut, WarehouseOut
 
-# In-memory user store (replace with DB in production)
-users_db = {}
+# Load environment variables
+load_dotenv()
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
-
-SECRET_KEY = "supersecretkey"  # Change in production
+# Security configuration - loaded from environment
+SECRET_KEY = os.getenv("SECRET_KEY", "change-this-in-production-use-env-variable")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-def verify_password(plain_password, hashed_password):
+# CORS configuration - restrict in production
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001").split(",")
+
+app = FastAPI(title="Distributed Logistics Orchestrator", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------- Authentication Setup -------------------------------------------
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
+
+# In-memory user store (replace with database in production)
+# TODO: Integrate with PostgreSQL using SQLAlchemy for persistence
+users_db: Dict[str, dict] = {}
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
-def get_password_hash(password):
+
+def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def authenticate_user(email: str, password: str):
+
+def authenticate_user(email: str, password: str) -> dict | None:
     user = users_db.get(email)
     if not user or not verify_password(password, user["hashed_password"]):
         return None
     return user
 
-def get_current_user(token: str = Depends(oauth2_scheme)):
+
+def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -53,66 +96,13 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         raise credentials_exception
     return user
 
-# --- AUTH ENDPOINTS ---
-@app.post("/register", response_model=schemas.UserOut)
-def register(user: schemas.UserCreate):
-    if user.email in users_db:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    hashed_password = get_password_hash(user.password)
-    user_id = len(users_db) + 1
-    users_db[user.email] = {
-        "id": user_id,
-        "email": user.email,
-        "role": user.role,
-        "hashed_password": hashed_password,
-    }
-    return {"id": user_id, "email": user.email, "role": user.role}
 
-@app.post("/login", response_model=schemas.Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
-    access_token = create_access_token(data={"sub": user["email"], "role": user["role"]})
-    return {"access_token": access_token, "token_type": "bearer"}
-from __future__ import annotations
-
-import asyncio
-import json
-import uuid
-from datetime import datetime
-from typing import Dict, List, Set
-
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-
-from . import synth
-from .data import (
-    DEFAULT_DRIVERS_PER_DISTRICT,
-    DEFAULT_WAREHOUSES_PER_DISTRICT,
-    DISTRICTS,
-    OSM_ATTRIBUTION,
-    OSM_TILE_URL,
-    TAMIL_NADU_BOUNDS,
-)
-from .routing import RouteNotFound, build_graph, plan_route
-from .schemas import OrderOut, OrderRequest, QuoteRequest, RoutePlanOut, WarehouseOut
-
-app = FastAPI(title="Distributed Logistics Orchestrator", version="0.1.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ---------- In-memory state -------------------------------------------------
+# ---------- In-memory state (replace with database in production) -----------
 WAREHOUSES = synth.generate_warehouses(per_district=DEFAULT_WAREHOUSES_PER_DISTRICT)
 DRIVERS = synth.generate_drivers(WAREHOUSES, per_district=DEFAULT_DRIVERS_PER_DISTRICT)
 GRAPH = build_graph(WAREHOUSES)
 ORDERS: Dict[str, OrderOut] = {}
+
 
 # ---------- WebSocket connections for real-time updates ---------------------
 class ConnectionManager:
@@ -149,6 +139,41 @@ async def broadcast_update(event_type: str, data: dict):
     })
 
 
+# ---------- AUTH ENDPOINTS ---------------------------------------------------
+@app.post("/register", response_model=schemas.UserOut)
+def register(user: schemas.UserCreate):
+    if user.email in users_db:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    hashed_password = get_password_hash(user.password)
+    user_id = len(users_db) + 1
+    users_db[user.email] = {
+        "id": user_id,
+        "email": user.email,
+        "role": user.role,
+        "hashed_password": hashed_password,
+    }
+    return {"id": user_id, "email": user.email, "role": user.role}
+
+
+@app.post("/login", response_model=schemas.Token)
+def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(status_code=400, detail="Incorrect email or password")
+    access_token = create_access_token(data={"sub": user["email"], "role": user["role"]})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.get("/me", response_model=schemas.UserOut)
+def get_me(current_user: dict = Depends(get_current_user)):
+    return {
+        "id": current_user["id"],
+        "email": current_user["email"],
+        "role": current_user["role"]
+    }
+
+
+# ---------- HEALTH & CATALOG ENDPOINTS ---------------------------------------
 @app.get("/health")
 def health() -> Dict[str, str]:
     return {"status": "ok"}
@@ -179,6 +204,7 @@ def map_config():
     }
 
 
+# ---------- QUOTE & ORDER ENDPOINTS ------------------------------------------
 @app.post("/quote", response_model=RoutePlanOut)
 def quote(payload: QuoteRequest):
     try:
@@ -195,9 +221,8 @@ def quote(payload: QuoteRequest):
         )
     except RouteNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-
     return plan
 
 
@@ -207,7 +232,6 @@ async def create_order(payload: OrderRequest):
     order_id = str(uuid.uuid4())
     order = OrderOut(id=order_id, request=payload, plan=plan)
     ORDERS[order_id] = order
-    # Broadcast new order event - plan is a dict from plan_route()
     await broadcast_update("order_created", {
         "order_id": order_id,
         "origin": payload.origin_district,
@@ -244,12 +268,12 @@ async def update_order_status(order_id: str, status: str):
     return {"message": "Status updated", "order_id": order_id, "status": status}
 
 
+# ---------- WEBSOCKET ENDPOINT -----------------------------------------------
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time updates."""
     await manager.connect(websocket)
     try:
-        # Send initial state
         await websocket.send_json({
             "type": "connected",
             "data": {
@@ -260,13 +284,11 @@ async def websocket_endpoint(websocket: WebSocket):
             "timestamp": datetime.utcnow().isoformat()
         })
         while True:
-            # Keep connection alive and handle incoming messages
             data = await websocket.receive_text()
             message = json.loads(data)
             if message.get("type") == "ping":
                 await websocket.send_json({"type": "pong", "timestamp": datetime.utcnow().isoformat()})
             elif message.get("type") == "subscribe":
-                # Client can subscribe to specific events
                 await websocket.send_json({
                     "type": "subscribed",
                     "data": {"topic": message.get("topic", "all")},

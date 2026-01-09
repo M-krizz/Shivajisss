@@ -1,7 +1,7 @@
 services:
   frontend:
     build:
-      context: ./logistics-orchestration-platform
+      context: ./app
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -21,7 +21,8 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/logistics
       - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=your-super-secret-jwt-key-change-in-production
+      - SECRET_KEY=${SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
+      - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
       - DEBUG=true
     depends_on:
       postgres:
