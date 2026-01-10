@@ -126,8 +126,6 @@ export default function ProviderDashboard() {
       </div>
     )
   }
-    )
-  }
 
   return (
     <div className="space-y-6">
