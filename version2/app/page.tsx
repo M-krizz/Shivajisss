@@ -1,11 +1,34 @@
 ﻿"use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Package2, ArrowRight, Truck, Users, Shield } from "lucide-react"
+import { Package2, ArrowRight, Truck, Users, Shield, Wifi, WifiOff, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { checkHealth } from "@/lib/api"
 
 export default function HomePage() {
+  const [isConnected, setIsConnected] = useState<boolean | null>(null)
+  const [checking, setChecking] = useState(true)
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        await checkHealth()
+        setIsConnected(true)
+      } catch {
+        setIsConnected(false)
+      } finally {
+        setChecking(false)
+      }
+    }
+    check()
+    // Re-check every 30 seconds
+    const interval = setInterval(check, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -23,6 +46,28 @@ export default function HomePage() {
             </Link>
             <Link href="#how-it-works" className="text-sm text-muted-foreground hover:text-foreground">
               How it Works
+            </Link>
+            {/* Backend Status */}
+            <div className="flex items-center gap-2">
+              {checking ? (
+                <Badge variant="outline" className="gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Checking...
+                </Badge>
+              ) : isConnected ? (
+                <Badge variant="outline" className="gap-1 border-emerald-500/50 text-emerald-500">
+                  <Wifi className="h-3 w-3" />
+                  API Online
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="gap-1 border-amber-500/50 text-amber-500">
+                  <WifiOff className="h-3 w-3" />
+                  API Offline
+                </Badge>
+              )}
+            </div>
+            <Link href="/auth/login">
+              <Button variant="outline" size="sm">Sign In</Button>
             </Link>
           </nav>
         </div>
@@ -123,8 +168,34 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="border-t border-border py-8">
-        <div className="mx-auto max-w-7xl px-4 text-center text-sm text-muted-foreground">
-          <p>Logistics Orchestration Platform - Hackathon Demo</p>
+        <div className="mx-auto max-w-7xl px-4">
+          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+                <Package2 className="h-4 w-4 text-primary-foreground" />
+              </div>
+              <span className="font-semibold">Logistics Platform</span>
+            </div>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <Link href="/docs" className="hover:text-foreground">Documentation</Link>
+              <Link href="/auth/login" className="hover:text-foreground">Sign In</Link>
+              <Link href="/auth/register" className="hover:text-foreground">Register</Link>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {isConnected ? (
+                <span className="flex items-center gap-1 text-emerald-500">
+                  <Wifi className="h-3 w-3" /> Backend Connected
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-amber-500">
+                  <WifiOff className="h-3 w-3" /> Start backend on :8000
+                </span>
+              )}
+            </div>
+          </div>
+          <p className="mt-4 text-center text-xs text-muted-foreground">
+            © 2026 Logistics Orchestration Platform. Built for distributed parcel delivery.
+          </p>
         </div>
       </footer>
     </div>

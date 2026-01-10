@@ -1,4 +1,12 @@
-from pydantic import BaseModel, EmailStr
+from __future__ import annotations
+
+from typing import Literal, Optional
+
+from pydantic import BaseModel, EmailStr, Field
+
+# ============================================================================
+# Auth Schemas
+# ============================================================================
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -17,11 +25,10 @@ class UserOut(UserBase):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
-from __future__ import annotations
 
-from typing import Literal, Optional
-
-from pydantic import BaseModel, Field
+# ============================================================================
+# Domain Schemas
+# ============================================================================
 
 Priority = Literal["cost", "time"]
 

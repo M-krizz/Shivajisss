@@ -9,39 +9,33 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Truck, DollarSign, Star, Route, CheckCircle2, MapPin, User } from "lucide-react"
+import { Truck, DollarSign, Star, Route, CheckCircle2, MapPin, User, Loader2, WifiOff, AlertCircle } from "lucide-react"
 
 import { useAuth } from "@/context/AuthContext"
-import { useEffect as useAuthEffect } from "react"
 import { useRouter } from "next/navigation"
 import { orders, availableSegments } from "@/lib/mock-data"
+import { getDrivers, type Driver } from "@/lib/api"
 import type { Segment } from "@/lib/types"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000"
-
-type DriverInfo = {
-  id: string
-  name: string
-  district_code: string
-  vehicle_type: string
-  warehouse_id: string
-}
-
 export default function ProviderDashboard() {
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, isConnected, checkConnection } = useAuth()
   const router = useRouter()
-  useAuthEffect(() => {
+  
+  useEffect(() => {
     if (!authLoading && (!user || user.role !== "provider")) {
       router.push("/auth/login")
     }
   }, [user, authLoading, router])
+  
   const [isOnline, setIsOnline] = useState(true)
   const [handoffDialogOpen, setHandoffDialogOpen] = useState(false)
   const [selectedSegment, setSelectedSegment] = useState<Segment | null>(null)
-  const [drivers, setDrivers] = useState<DriverInfo[]>([])
+  const [drivers, setDrivers] = useState<Driver[]>([])
   const [selectedDriverId, setSelectedDriverId] = useState<string>("")
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   // Derived state from selected driver
   const selectedDriver = drivers.find(d => d.id === selectedDriverId)
@@ -56,16 +50,18 @@ export default function ProviderDashboard() {
 
   useEffect(() => {
     const load = async () => {
+      setError(null)
       try {
-        const res = await fetch(`${API_BASE}/catalog/drivers`)
-        if (!res.ok) throw new Error("Failed to load providers")
-        const data: DriverInfo[] = await res.json()
+        // Check connection first
+        await checkConnection()
+        const data = await getDrivers()
         setDrivers(data)
         if (data.length > 0) {
           setSelectedDriverId(data[0].id)
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error(e)
+        setError(e.message || "Failed to load provider data. Make sure the backend is running.")
       } finally {
         setLoading(false)
       }
@@ -95,9 +91,41 @@ export default function ProviderDashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="text-muted-foreground">Loading provider data...</p>
       </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-xl mx-auto mt-8">
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="flex flex-col gap-2">
+            <span>{error}</span>
+            {!isConnected && (
+              <span className="flex items-center gap-1 text-sm">
+                <WifiOff className="h-3 w-3" />
+                Backend server is offline. Start it on port 8000.
+              </span>
+            )}
+          </AlertDescription>
+        </Alert>
+        <div className="mt-4 p-4 rounded-lg bg-muted text-sm">
+          <p className="font-medium mb-2">To start the backend:</p>
+          <pre className="bg-background p-2 rounded text-xs overflow-x-auto">
+            cd backend{"\n"}
+            uvicorn app.main:app --reload --port 8000
+          </pre>
+        </div>
+        <Button onClick={() => window.location.reload()} className="mt-4">
+          Retry
+        </Button>
+      </div>
+    )
+  }
     )
   }
 
